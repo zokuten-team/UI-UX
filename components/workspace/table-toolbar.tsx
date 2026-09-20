@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  AlignCenter, AlignLeft, AlignRight, Columns2, Grid3X3, Merge, Minus,
-  Plus, RowsIcon, Split, Trash2, PaintBucket, Type, Frame, BookOpen, Repeat
+  AlignCenter, Columns2, Grid3X3, Merge,
+  Plus, RowsIcon, Split, Trash2, PaintBucket, Frame, BookOpen, Repeat
 } from "lucide-react";
 
 type Props = {
@@ -37,21 +37,44 @@ function getCellIndex(cell: HTMLTableCellElement) {
   return { rowIdx: row.rowIndex, colIdx: cell.cellIndex };
 }
 
+type CellLocation = { tableIndex: number; rowIndex: number; cellIndex: number };
+
+function resolveActiveCell(
+  editor: HTMLElement | null,
+  current: HTMLTableCellElement | null,
+  location: CellLocation | null,
+) {
+  if (current?.isConnected) return current;
+  if (!editor || !location) return null;
+  const table = editor.querySelectorAll("table")[location.tableIndex];
+  return table?.rows[location.rowIndex]?.cells[location.cellIndex] ?? null;
+}
+
 export function TableToolbar({ editorRef, onContentChange }: Props) {
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
-  const [activeCell, setActiveCell] = useState<HTMLTableCellElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const activeCellRef = useRef<HTMLTableCellElement | null>(null);
+  const activeCellLocation = useRef<CellLocation | null>(null);
+  const toolbarInteraction = useRef(false);
 
   const checkSelection = useCallback(() => {
+    if (toolbarInteraction.current || toolbarRef.current?.contains(document.activeElement)) return;
     const cell = getActiveCell(editorRef.current);
     if (cell) {
       const rect = cell.getBoundingClientRect();
       const editorRect = editorRef.current!.getBoundingClientRect();
       setPosition({ top: rect.top - editorRect.top - 44, left: rect.left - editorRect.left });
-      setActiveCell(cell);
+      activeCellRef.current = cell;
+      const table = getActiveTable(cell);
+      activeCellLocation.current = table ? {
+        tableIndex: [...editorRef.current!.querySelectorAll("table")].indexOf(table),
+        rowIndex: cell.parentElement instanceof HTMLTableRowElement ? cell.parentElement.rowIndex : 0,
+        cellIndex: cell.cellIndex,
+      } : null;
     } else {
       setPosition(null);
-      setActiveCell(null);
+      activeCellRef.current = null;
+      activeCellLocation.current = null;
     }
   }, [editorRef]);
 
@@ -69,6 +92,8 @@ export function TableToolbar({ editorRef, onContentChange }: Props) {
   }, [editorRef, checkSelection]);
 
   const insertRow = useCallback((above: boolean) => {
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!activeCell) return;
     const table = getActiveTable(activeCell);
     if (!table) return;
@@ -81,21 +106,25 @@ export function TableToolbar({ editorRef, onContentChange }: Props) {
       td.style.padding = "8px";
     }
     onContentChange();
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
   const deleteRow = useCallback(() => {
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!activeCell) return;
     const table = getActiveTable(activeCell);
     if (!table) return;
     if (table.rows.length <= 1) return;
     const { rowIdx } = getCellIndex(activeCell);
     table.deleteRow(rowIdx);
-    setActiveCell(null);
+    activeCellRef.current = null;
     setPosition(null);
     onContentChange();
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
   const insertCol = useCallback((left: boolean) => {
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!activeCell) return;
     const table = getActiveTable(activeCell);
     if (!table) return;
@@ -113,9 +142,11 @@ export function TableToolbar({ editorRef, onContentChange }: Props) {
       }
     }
     onContentChange();
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
   const deleteCol = useCallback(() => {
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!activeCell) return;
     const table = getActiveTable(activeCell);
     if (!table) return;
@@ -124,23 +155,27 @@ export function TableToolbar({ editorRef, onContentChange }: Props) {
     for (let r = 0; r < table.rows.length; r++) {
       table.rows[r].deleteCell(colIdx);
     }
-    setActiveCell(null);
+    activeCellRef.current = null;
     setPosition(null);
     onContentChange();
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
   const deleteTable = useCallback(() => {
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!activeCell) return;
     const table = getActiveTable(activeCell);
     if (!table) return;
     table.remove();
-    setActiveCell(null);
+    activeCellRef.current = null;
     setPosition(null);
     onContentChange();
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
   const mergeCells = useCallback(() => {
     const sel = window.getSelection();
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!sel || !activeCell) return;
     const table = getActiveTable(activeCell);
     if (!table) return;
@@ -154,9 +189,11 @@ export function TableToolbar({ editorRef, onContentChange }: Props) {
       nextCell.remove();
       onContentChange();
     }
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
   const splitCell = useCallback(() => {
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!activeCell || !activeCell.colSpan || activeCell.colSpan <= 1) return;
     const table = getActiveTable(activeCell);
     if (!table) return;
@@ -170,22 +207,27 @@ export function TableToolbar({ editorRef, onContentChange }: Props) {
       newCell.style.padding = "8px";
     }
     onContentChange();
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
   const distributeRowsEvenly = useCallback(() => {
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!activeCell) return;
     const table = getActiveTable(activeCell);
     if (!table) return;
     const rows = table.rows;
+    const height = Math.max(...[...rows].map((row) => row.getBoundingClientRect().height));
     for (let i = 0; i < rows.length; i++) {
       for (let j = 0; j < rows[i].cells.length; j++) {
-        rows[i].cells[j].style.height = `${100 / rows.length}%`;
+        rows[i].cells[j].style.height = `${Math.max(32, height)}px`;
       }
     }
     onContentChange();
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
   const distributeColsEvenly = useCallback(() => {
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!activeCell) return;
     const table = getActiveTable(activeCell);
     if (!table) return;
@@ -196,15 +238,19 @@ export function TableToolbar({ editorRef, onContentChange }: Props) {
       }
     }
     onContentChange();
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
   const setCellColor = useCallback((color: string) => {
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!activeCell) return;
     activeCell.style.backgroundColor = color;
     onContentChange();
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
   const setTableBorderColor = useCallback((color: string) => {
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!activeCell) return;
     const table = getActiveTable(activeCell);
     if (!table) return;
@@ -215,9 +261,11 @@ export function TableToolbar({ editorRef, onContentChange }: Props) {
       }
     }
     onContentChange();
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
   const togglePreventRowSplit = useCallback(() => {
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!activeCell) return;
     const table = getActiveTable(activeCell);
     if (!table) return;
@@ -228,9 +276,11 @@ export function TableToolbar({ editorRef, onContentChange }: Props) {
       table.rows[i].style.breakInside = current === "avoid" ? "auto" : "avoid";
     }
     onContentChange();
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
   const toggleRepeatHeader = useCallback(() => {
+    const activeCell = resolveActiveCell(editorRef.current, activeCellRef.current, activeCellLocation.current);
+    activeCellRef.current = activeCell;
     if (!activeCell) return;
     const table = getActiveTable(activeCell);
     if (!table) return;
@@ -247,9 +297,9 @@ export function TableToolbar({ editorRef, onContentChange }: Props) {
       table.insertBefore(newThead, table.firstChild);
     }
     onContentChange();
-  }, [activeCell, onContentChange]);
+  }, [editorRef, onContentChange]);
 
-  if (!position || !activeCell) return null;
+  if (!position) return null;
 
   return (
     <div
@@ -257,7 +307,13 @@ export function TableToolbar({ editorRef, onContentChange }: Props) {
       className="table-toolbar"
       style={{ top: `${Math.max(0, position.top)}px`, left: `${position.left}px`, display: 'flex', gap: '4px', background: '#fff', border: '1px solid #ccc', padding: '4px', borderRadius: '4px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', flexWrap: 'wrap', maxWidth: '400px', position: 'absolute', zIndex: 100 }}
       onMouseDown={(e) => {
+        toolbarInteraction.current = true;
+        e.stopPropagation();
         if ((e.target as HTMLElement).tagName !== "INPUT") e.preventDefault();
+      }}
+      onMouseUp={() => { toolbarInteraction.current = false; }}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) toolbarInteraction.current = false;
       }}
     >
       <button title="Insert row above" onClick={() => insertRow(true)}><Plus size={12} /><RowsIcon size={12} />↑</button>

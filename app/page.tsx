@@ -2,18 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlignCenter, AlignJustify, AlignLeft, AlignRight, Archive, Bold,
-  Bot, Calculator, Camera, ChevronDown, ChevronRight, ClipboardList,
-  Cloud, FileDown, FilePlus2, FileText, FileUp, Highlighter, IndentDecrease,
-  IndentIncrease, Italic, Languages, Link2, List, ListOrdered, MessageSquareText,
-  PanelRightClose, PanelRightOpen, Plus, Printer, Quote,
-  Redo2, Save, Scale, Search, ScanLine, Sparkles, Strikethrough, Table2, Underline,
-  Undo2, Upload, X, ZoomIn, ZoomOut,
+  Archive, Bot, Calculator, ChevronDown, ChevronRight, ClipboardList,
+  Cloud, FilePlus2, FileText, Languages, MessageSquareText,
+  PanelRightClose, PanelRightOpen, Plus, Printer,
+  Save, Scale, Search, ScanLine, Sparkles,
+  Upload, X, ZoomIn, ZoomOut,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
-import type { Note, ToolId, Page, WorkspaceDoc } from "@/components/workspace/types";
-import { useWorkspace, uid } from "@/components/workspace/workspace-store";
-import { NotesPanel, InlineNoteAdder, PageNotes } from "@/components/workspace/notes-panel";
+import type { ToolId, WorkspaceDoc } from "@/components/workspace/types";
+import { useWorkspace } from "@/components/workspace/workspace-store";
+import { NotesPanel, InlineNoteAdder } from "@/components/workspace/notes-panel";
 import { DocumentSearch } from "@/components/workspace/document-search";
 import { TableToolbar } from "@/components/workspace/table-toolbar";
 import { IndexPanel } from "@/components/workspace/index-panel";
@@ -21,39 +20,61 @@ import { WordToolbar } from "@/components/workspace/word-toolbar";
 import { AnalysePanel } from "@/components/workspace/analyse-panel";
 import { DigitisePanel } from "@/components/workspace/digitise-panel";
 import { VerificationWorkspace } from "@/components/workspace/verification-workspace";
+import { PdfPage } from "@/components/workspace/pdf-page";
 
 /* ── Tools catalogue ──────────────────────────────────────────────── */
-const tools: Array<{ id: ToolId; label: string; description: string; icon: any }> = [
-  { id: "digitise", label: "Document Digitisation", description: "Convert scans into searchable records", icon: ScanLine },
-  { id: "analyse", label: "Analyse AI", description: "Review from a chosen legal perspective", icon: Sparkles },
-  { id: "research", label: "Research & Case Law AI", description: "Search judgments and bare acts", icon: Search },
-  { id: "advo", label: "Advo AI", description: "Draft, explain and refine", icon: Bot },
-  { id: "translate", label: "Translation AI", description: "Translate the open document", icon: Languages },
-  { id: "calculator", label: "Suit Calculator", description: "Valuation, court fee and jurisdiction", icon: Calculator },
-  { id: "indexing", label: "Indexing", description: "Build a continuous document index", icon: ClipboardList },
+const tools: Array<{ id: ToolId; label: string; icon: LucideIcon }> = [
+  { id: "digitise", label: "Document Digitisation", icon: ScanLine },
+  { id: "analyse", label: "Analyse AI", icon: Sparkles },
+  { id: "research", label: "Research & Case Law AI", icon: Search },
+  { id: "advo", label: "Draft AI", icon: Bot },
+  { id: "translate", label: "Translation AI", icon: Languages },
+  { id: "calculator", label: "Suit Calculator", icon: Calculator },
+  { id: "indexing", label: "Indexing", icon: ClipboardList },
 ];
 
 const courts = ["All Courts", "Supreme Court of India", "Allahabad High Court", "Andhra Pradesh High Court", "Bombay High Court", "Calcutta High Court", "Delhi High Court", "Gujarat High Court", "Karnataka High Court", "Kerala High Court", "Madras High Court", "Telangana High Court"];
+
+const plainTextToHtml = (text: string) => text
+  .split(/\n{2,}/)
+  .map((paragraph) => `<p>${paragraph
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\n", "<br>")}</p>`)
+  .join("");
+
+const htmlToPlainText = (html: string) => html
+  .replace(/<br\s*\/?>/gi, "\n")
+  .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, "\n")
+  .replace(/<[^>]+>/g, " ")
+  .replace(/&nbsp;/gi, " ")
+  .replace(/&amp;/gi, "&")
+  .replace(/&lt;/gi, "<")
+  .replace(/&gt;/gi, ">")
+  .replace(/[ \t]+/g, " ")
+  .replace(/\n{3,}/g, "\n\n")
+  .trim();
 
 /* ── Main workspace ──────────────────────────────────────────────── */
 export default function LegalWorkspace() {
   const ws = useWorkspace();
   const {
     docs, activeDoc, activePage, activeDocId, activePageId, setActivePageId, setActiveDocId,
-    openDocIds, notes, saved, zoom, setZoom,
+    notes, saved, zoom, setZoom,
     verificationMode, setVerificationMode,
-    saveWorkspace, updatePage, createDocument, createPage,
-    openDocument, closeDocument, discardAndClose, saveAndClose,
-    renameDocument, deleteDocument, duplicateDocument, reorderDocs,
+    saveWorkspace, updatePage, createDocument, createDocumentFromHtml, createPage,
+    openDocument,
+    renameDocument, deleteDocument, reorderDocs,
     deletePage, addNote, removeNote, scrollExcludedDocIds, toggleDocScrollExclusion,
     addLinkedTable, updateLinkedTables, addFilesToWorkspace,
   } = ws;
 
-  const [panel, setPanel] = useState<ToolId | "notes" | null>("research");
+  const [panel, setPanel] = useState<ToolId | "notes" | null>(null);
   const [toolMenu, setToolMenu] = useState(false);
   const [isCaseFilesOpen, setIsCaseFilesOpen] = useState(true);
   const [printOpen, setPrintOpen] = useState(false);
-  const [printSelection, setPrintSelection] = useState<string[]>(["petition", "annexures"]);
+  const [printPageSelection, setPrintPageSelection] = useState<string[]>(["p1", "p2", "a1"]);
   const [pageNumberPosition, setPageNumberPosition] = useState<"top" | "bottom">("bottom");
   const [startNumber, setStartNumber] = useState(1);
   const [showSearch, setShowSearch] = useState(false);
@@ -62,18 +83,42 @@ export default function LegalWorkspace() {
   const [printSided, setPrintSided] = useState<"single" | "double">("single");
   const [printIncludeNotes, setPrintIncludeNotes] = useState(false);
   const [printIncludeIndex, setPrintIncludeIndex] = useState(false);
+  const [pageSize, setPageSize] = useState<"a4" | "green">("a4");
+  const [verificationDraft, setVerificationDraft] = useState("");
+  const [verificationSourceDocId, setVerificationSourceDocId] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const [isContinuousScroll, setIsContinuousScroll] = useState(true);
+  const isContinuousScroll = true;
   const [collapsedDocs, setCollapsedDocs] = useState<string[]>([]);
   const [draggedDocId, setDraggedDocId] = useState<string | null>(null);
   const [dragOverDocId, setDragOverDocId] = useState<string | null>(null);
   const [dragOverPos, setDragOverPos] = useState<"top" | "bottom" | null>(null);
 
   const togglePanel = (next: ToolId | "notes") => { setPanel((old) => old === next ? null : next); setToolMenu(false); };
+
+  const openVerification = useCallback((text: string) => {
+    const fallback = activePage?.extractedText || htmlToPlainText(activePage?.html || "");
+    if (text.trim() || !verificationDraft.trim()) setVerificationDraft(text.trim() || fallback);
+    setVerificationSourceDocId(activeDocId);
+    setVerificationMode(true);
+  }, [activeDocId, activePage, setVerificationMode, verificationDraft]);
+
+  const approveVerification = useCallback(() => {
+    if (!verificationDraft.trim()) return;
+    const source = docs.find((doc) => doc.id === verificationSourceDocId) ?? activeDoc;
+    if (!source) return;
+    createDocumentFromHtml(`${source.name.replace(/\.[^.]+$/, "")} — Approved text`, plainTextToHtml(verificationDraft), source.id);
+    setVerificationMode(false);
+  }, [activeDoc, createDocumentFromHtml, docs, setVerificationMode, verificationDraft, verificationSourceDocId]);
+
+  const createAiDraft = useCallback((instruction: string) => {
+    const subject = instruction.replace(/^draft\s*/i, "").trim() || "Legal response";
+    const draftText = `DRAFT — ${subject}\n\nPrepared from the instruction: ${instruction}\n\nBackground\nSet out the relevant facts, dates and parties here.\n\nSubmissions\n1. State the principal legal grounds.\n2. Connect each ground to the supporting facts and documents.\n3. Address the likely response from the opposing party.\n\nRelief requested\nSet out the precise orders or relief sought.`;
+    createDocumentFromHtml(`AI Draft — ${subject.slice(0, 48)}`, plainTextToHtml(draftText), activeDocId);
+  }, [activeDocId, createDocumentFromHtml]);
 
   /* ── execCommand helper ── */
   const command = useCallback((name: string, value?: string) => {
@@ -82,9 +127,6 @@ export default function LegalWorkspace() {
     document.execCommand(name, false, value);
     if (activeEditor) updatePage(activePageId, activeEditor.innerHTML);
   }, [activePageId, updatePage]);
-
-  const insertTable = () => command("insertHTML", `<table><tbody><tr><th>Heading</th><th>Heading</th><th>Heading</th></tr><tr><td>Text</td><td>Text</td><td>Text</td></tr><tr><td>Text</td><td>Text</td><td>Text</td></tr></tbody></table><p><br></p>`);
-  const addLink = () => { const url = window.prompt("Paste the link URL"); if (url) command("createLink", url); };
 
   /* ── Keyboard shortcuts ── */
   useEffect(() => {
@@ -132,19 +174,6 @@ export default function LegalWorkspace() {
       pageEl?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 100);
   }, [activeDocId, openDocument, setActivePageId]);
-
-  /* ── Download active document as HTML ── */
-  const downloadDocument = useCallback(() => {
-    if (!activeDoc) return;
-    const html = activeDoc.pages.map((p) => p.html).join("<hr style='page-break-after:always'>");
-    const blob = new Blob([`<!DOCTYPE html><html><head><title>${activeDoc.name}</title></head><body>${html}</body></html>`], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${activeDoc.name.replace(/[^a-zA-Z0-9_-]/g, "_")}.html`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [activeDoc]);
 
   /* ── All pages with doc info for notes ── */
   const allPagesWithDoc = useMemo(() =>
@@ -217,15 +246,11 @@ export default function LegalWorkspace() {
         </div>
 
         <div className="top-actions">
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#475569', marginRight: '16px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={isContinuousScroll} onChange={(e) => setIsContinuousScroll(e.target.checked)} style={{ width: '14px', height: '14px' }} />
-            Continuous Scroll
-          </label>
           <div className="tool-launcher-wrap">
             <button className="primary-button" onClick={() => setToolMenu((o) => !o)}><Sparkles size={16} /> AI & Tools <ChevronDown size={14} /></button>
             {toolMenu && <div className="tool-launcher">
               <div className="tool-launcher-title">Workspace tools</div>
-              {tools.map((item) => <button key={item.id} onClick={() => togglePanel(item.id)}><span className="tool-icon"><item.icon size={17} /></span><span><strong>{item.label}</strong><small>{item.description}</small></span><ChevronRight size={15} /></button>)}
+              {tools.map((item) => <button key={item.id} onClick={() => togglePanel(item.id)}><span className="tool-icon"><item.icon size={17} /></span><strong>{item.label}</strong><ChevronRight size={15} /></button>)}
             </div>}
           </div>
           <button className={`quiet-button ${panel === "notes" ? "active" : ""}`} onClick={() => togglePanel("notes")}>
@@ -373,18 +398,26 @@ export default function LegalWorkspace() {
         <section className="editor-area" style={{ position: 'relative' }}>
           
           {verificationMode && activeDoc ? (
-            <VerificationWorkspace 
-              originalImageSrc={
-                activeDoc.kind === "pdf" ? (activeDoc.pdfData || "") : (activePage?.html.match(/src="([^"]+)"/)?.[1] || "")
-              }
+            <VerificationWorkspace
+              originalSource={activeDoc.kind === "pdf" ? (activeDoc.pdfData || "") : (activePage?.html.match(/src=["']([^"']+)["']/)?.[1] || "")}
+              sourceKind={activeDoc.kind === "pdf" ? "pdf" : "image"}
+              pageNumber={activePage?.pdfPageNumber}
+              text={verificationDraft}
+              title={activePage?.title || activeDoc.name}
               onClose={() => setVerificationMode(false)}
-              onVerified={() => setVerificationMode(false)}
+              onTextChange={setVerificationDraft}
             />
           ) : (
             <>
-              <div className="editor-statusbar">
+          <div className="editor-statusbar">
             <span><FileText size={14} /> {activePage?.title} · Page {(activeDoc?.pages.findIndex((p) => p.id === activePageId) ?? 0) + 1} of {activeDoc?.pages.length ?? 0}</span>
             <div>
+              <label className="page-size-control">Page
+                <select value={pageSize} onChange={(event) => setPageSize(event.target.value as "a4" | "green")}>
+                  <option value="a4">A4</option>
+                  <option value="green">Green sheet / Legal</option>
+                </select>
+              </label>
               <button onClick={() => setZoom((v) => Math.max(60, v - 10))}><ZoomOut /></button>
               <span>{zoom}%</span>
               <button onClick={() => setZoom((v) => Math.min(130, v + 10))}><ZoomIn /></button>
@@ -402,7 +435,7 @@ export default function LegalWorkspace() {
                         <button onClick={() => setCollapsedDocs(c => c.includes(doc.id) ? c.filter(id => id !== doc.id) : [...c, doc.id])} style={{ background: 'transparent', border: 0, padding: 0, cursor: 'pointer' }}>
                           {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
                         </button>
-                        <FileText size={15} /> <strong>{doc.name}</strong> <small style={{ color: '#8b969e' }}>({doc.kind === 'pdf' ? 'PDF' : 'Rich Text'})</small>
+                        <FileText size={15} /> <strong>{doc.name}</strong>
                       </span>
                       <div className="doc-controls">
                         <button title="Exclude from scroll" onClick={() => toggleDocScrollExclusion(doc.id)}><Archive size={14} /></button>
@@ -422,13 +455,9 @@ export default function LegalWorkspace() {
                     
                     return (
                       <div key={page.id} data-page-id={page.id} data-doc-id={doc.id} className="page-scroll-section progressive-render">
-                        <article className="paper" style={{ width: `${zoom}%`, ...(doc.kind === 'pdf' ? { padding: 0, overflow: 'hidden' } : {}) }}>
+                        <article className={`paper page-size-${pageSize} ${doc.kind === "pdf" ? "pdf-paper" : ""}`} style={{ width: `${zoom}%` }}>
                           {doc.kind === 'pdf' ? (
-                            <iframe 
-                              src={`${doc.pdfData}#toolbar=0&navpanes=0&scrollbar=0`} 
-                              style={{ width: '100%', height: '85vh', border: 'none', display: 'block' }} 
-                              title={doc.name} 
-                            />
+                            <PdfPage source={doc.pdfData ?? ""} pageNumber={page.pdfPageNumber ?? index + 1} label={doc.name} />
                           ) : (
                             <div
                               ref={(el) => { if (el) editorRefs.current.set(page.id, el); }}
@@ -472,7 +501,7 @@ export default function LegalWorkspace() {
         {panel && (
           <aside className="right-panel">
             <div className="panel-top">
-              <div><span className="eyebrow">PARALLEL VIEW</span><h2>{panel === "notes" ? "Notes" : tools.find((t) => t.id === panel)?.label}</h2></div>
+              <h2>{panel === "notes" ? "Notes" : tools.find((t) => t.id === panel)?.label}</h2>
               <button onClick={() => setPanel(null)} title="Close panel"><X /></button>
             </div>
             <div className="panel-content">
@@ -487,10 +516,20 @@ export default function LegalWorkspace() {
                   onNavigateToNote={navigateToNote}
                 />
               )}
-              {panel === "digitise" && <DigitisePanel activeDoc={activeDoc} activePage={activePage} setVerificationMode={setVerificationMode} />}
+              {panel === "digitise" && (
+                <DigitisePanel
+                  activeDoc={activeDoc}
+                  activePage={activePage}
+                  updatePage={updatePage}
+                  onChooseFile={() => fileInputRef.current?.click()}
+                  onOpenVerification={openVerification}
+                  onApprove={approveVerification}
+                  canApprove={Boolean(verificationDraft.trim())}
+                />
+              )}
               {panel === "analyse" && <AnalysePanel html={activePage?.html ?? ""} />}
               {panel === "research" && <ResearchPanel />}
-              {panel === "advo" && <AdvoPanel />}
+              {panel === "advo" && <AdvoPanel onCreateDraft={createAiDraft} />}
               {panel === "translate" && <TranslationPanel />}
               {panel === "calculator" && <div className="calculator-frame"><iframe title="Suit valuation calculator" src="/calculator" /></div>}
               {panel === "indexing" && (
@@ -510,14 +549,14 @@ export default function LegalWorkspace() {
         )}
       </div>
 
-      <button className="floating-panel-toggle" onClick={() => setPanel(panel ? null : "research")} title="Toggle parallel panel">{panel ? <PanelRightClose /> : <PanelRightOpen />}</button>
+      <button className="floating-panel-toggle" onClick={() => setPanel(panel ? null : "research")} title="Toggle tools">{panel ? <PanelRightClose /> : <PanelRightOpen />}</button>
 
       {/* ── Print dialog ── */}
       {printOpen && (
         <PrintDialog
           docs={docs}
-          selected={printSelection}
-          setSelected={setPrintSelection}
+          selectedPages={printPageSelection}
+          setSelectedPages={setPrintPageSelection}
           position={pageNumberPosition}
           setPosition={setPageNumberPosition}
           start={startNumber}
@@ -535,7 +574,7 @@ export default function LegalWorkspace() {
           onClose={() => setPrintOpen(false)}
         />
       )}
-      <PrintStack docs={docs.filter((d) => printSelection.includes(d.id))} position={pageNumberPosition} start={startNumber} />
+      <PrintStack docs={docs} selectedPages={printPageSelection} position={pageNumberPosition} start={startNumber} />
     </main>
   );
 }
@@ -594,13 +633,27 @@ function ResearchPanel() {
   );
 }
 
-function AdvoPanel() {
+function AdvoPanel({ onCreateDraft }: { onCreateDraft: (instruction: string) => void }) {
   const [messages, setMessages] = useState<Array<{ role: "ai" | "user"; text: string }>>([{ role: "ai", text: "I can help draft, compare clauses, create a chronology or explain the open document." }]);
   const [input, setInput] = useState("");
-  const send = () => { if (!input.trim()) return; const prompt = input.trim(); setMessages((c) => [...c, { role: "user", text: prompt }, { role: "ai", text: "This frontend is ready to send that request with the open page and selected case files to the Advo AI backend." }]); setInput(""); };
+  const draft = (instruction: string) => {
+    onCreateDraft(instruction);
+    setMessages((current) => [...current, { role: "user", text: instruction }, { role: "ai", text: "I opened a new editable document and started the draft there." }]);
+    setInput("");
+  };
+  const send = () => {
+    if (!input.trim()) return;
+    const prompt = input.trim();
+    if (/\bdraft\b/i.test(prompt)) {
+      draft(prompt);
+      return;
+    }
+    setMessages((current) => [...current, { role: "user", text: prompt }, { role: "ai", text: "This frontend is ready to send that request with the open page and selected case files to the Advo AI backend." }]);
+    setInput("");
+  };
   return (
     <div className="tool-section chat-tool">
-      <div className="quick-grid"><button onClick={() => setInput("Summarise the open page")}>Summarise</button><button onClick={() => setInput("Extract key clauses")}>Key clauses</button><button onClick={() => setInput("Create action items")}>Action items</button><button onClick={() => setInput("Draft a response")}>Draft response</button></div>
+      <div className="quick-grid"><button onClick={() => setInput("Summarise the open page")}>Summarise</button><button onClick={() => setInput("Extract key clauses")}>Key clauses</button><button onClick={() => setInput("Create action items")}>Action items</button><button onClick={() => draft("Draft a response to the open document")}>Draft in new document</button></div>
       <div className="chat-messages">{messages.map((m, i) => <div key={i} className={m.role}>{m.text}</div>)}</div>
       <div className="chat-input"><textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask Advo AI about this matter…" onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }} /><button onClick={send}><ChevronRight /></button></div>
     </div>
@@ -623,7 +676,7 @@ function TranslationPanel() {
 
 /* ── Print ──────────────────────────────────────────────────────────── */
 type PrintDialogProps = {
-  docs: WorkspaceDoc[]; selected: string[]; setSelected: React.Dispatch<React.SetStateAction<string[]>>;
+  docs: WorkspaceDoc[]; selectedPages: string[]; setSelectedPages: React.Dispatch<React.SetStateAction<string[]>>;
   position: "top" | "bottom"; setPosition: (v: "top" | "bottom") => void;
   start: number; setStart: (v: number) => void;
   pageRange: string; setPageRange: (v: string) => void;
@@ -634,8 +687,15 @@ type PrintDialogProps = {
   onClose: () => void;
 };
 
-function PrintDialog({ docs, selected, setSelected, position, setPosition, start, setStart, pageRange, setPageRange, orientation, setOrientation, sided, setSided, includeNotes, setIncludeNotes, includeIndex, setIncludeIndex, onClose }: PrintDialogProps) {
-  const count = docs.filter((d) => selected.includes(d.id)).reduce((s, d) => s + d.pages.length, 0);
+function PrintDialog({ docs, selectedPages, setSelectedPages, position, setPosition, start, setStart, pageRange, setPageRange, orientation, setOrientation, sided, setSided, includeNotes, setIncludeNotes, includeIndex, setIncludeIndex, onClose }: PrintDialogProps) {
+  const [expandedDocs, setExpandedDocs] = useState<string[]>([]);
+  const count = docs.reduce((total, doc) => total + doc.pages.filter((page) => selectedPages.includes(page.id)).length, 0);
+  const toggleDocument = (doc: WorkspaceDoc, checked: boolean) => {
+    const pageIds = doc.pages.map((page) => page.id);
+    setSelectedPages((current) => checked
+      ? [...new Set([...current, ...pageIds])]
+      : current.filter((pageId) => !pageIds.includes(pageId)));
+  };
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <div className="print-dialog">
@@ -644,7 +704,38 @@ function PrintDialog({ docs, selected, setSelected, position, setPosition, start
           <section>
             <h3>Documents</h3>
             <div className="print-files">
-              {docs.map((doc) => <label key={doc.id}><input type="checkbox" checked={selected.includes(doc.id)} onChange={(e) => setSelected((c) => e.target.checked ? [...c, doc.id] : c.filter((id) => id !== doc.id))} /><FileText /><span><strong>{doc.name}</strong><small>{doc.pages.length} page{doc.pages.length === 1 ? "" : "s"}</small></span></label>)}
+              {docs.map((doc) => {
+                const selectedCount = doc.pages.filter((page) => selectedPages.includes(page.id)).length;
+                const expanded = expandedDocs.includes(doc.id);
+                return (
+                  <div className="print-file-group" key={doc.id}>
+                    <div className="print-file-row">
+                      <label>
+                        <input type="checkbox" checked={selectedCount === doc.pages.length} onChange={(event) => toggleDocument(doc, event.target.checked)} />
+                        <FileText />
+                        <span><strong>{doc.name}</strong><small>{selectedCount} of {doc.pages.length} pages selected</small></span>
+                      </label>
+                      <button aria-label={`Choose pages from ${doc.name}`} title="Choose pages" onClick={() => setExpandedDocs((current) => expanded ? current.filter((id) => id !== doc.id) : [...current, doc.id])}>
+                        {expanded ? <ChevronDown /> : <ChevronRight />}
+                      </button>
+                    </div>
+                    {expanded && (
+                      <div className="print-page-choices">
+                        {doc.pages.map((page, index) => (
+                          <label key={page.id}>
+                            <input
+                              type="checkbox"
+                              checked={selectedPages.includes(page.id)}
+                              onChange={(event) => setSelectedPages((current) => event.target.checked ? [...new Set([...current, page.id])] : current.filter((id) => id !== page.id))}
+                            />
+                            <span>Page {index + 1}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <h3>Page range</h3>
             <input type="text" value={pageRange} onChange={(e) => setPageRange(e.target.value)} placeholder="All pages (e.g. 1-3, 5)" className="print-range-input" />
@@ -672,7 +763,22 @@ function PrintDialog({ docs, selected, setSelected, position, setPosition, start
   );
 }
 
-function PrintStack({ docs, position, start }: { docs: WorkspaceDoc[]; position: "top" | "bottom"; start: number }) {
-  const pages = docs.flatMap((d) => d.pages.map((p) => ({ ...p, docId: d.id })));
-  return <div className="print-stack">{pages.map((page, i) => <article className="print-page" key={`${page.docId}-${page.id}`}><div className={`printed-number ${position}`}>{start + i}</div><div dangerouslySetInnerHTML={{ __html: page.html }} /></article>)}</div>;
+function PrintStack({ docs, selectedPages, position, start }: { docs: WorkspaceDoc[]; selectedPages: string[]; position: "top" | "bottom"; start: number }) {
+  const pages = docs.flatMap((doc) => doc.pages
+    .filter((page) => selectedPages.includes(page.id))
+    .map((page) => ({ page, doc })));
+  return (
+    <div className="print-stack">
+      {pages.map(({ page, doc }, index) => (
+        <article className="print-page" key={`${doc.id}-${page.id}`}>
+          <div className={`printed-number ${position}`}>{start + index}</div>
+          {doc.kind === "pdf" ? (
+            <PdfPage source={doc.pdfData ?? ""} pageNumber={page.pdfPageNumber ?? index + 1} label={doc.name} />
+          ) : (
+            <div dangerouslySetInnerHTML={{ __html: page.html }} />
+          )}
+        </article>
+      ))}
+    </div>
+  );
 }

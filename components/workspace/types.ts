@@ -7,6 +7,10 @@ export type Page = {
   title: string;
   html: string;
   dirty?: boolean;
+  /** 1-based page number for a page rendered from an imported PDF. */
+  pdfPageNumber?: number;
+  /** Text embedded in the source PDF (or produced by OCR). */
+  extractedText?: string;
 };
 
 export type WorkspaceDoc = {
@@ -14,8 +18,8 @@ export type WorkspaceDoc = {
   name: string;
   pages: Page[];
   updated: string;
-  /** "word" for rich-text documents, "pdf" for PDF files */
-  kind?: "word" | "pdf";
+  /** The source format. All formats are shown together in the bundle view. */
+  kind?: "word" | "pdf" | "docx" | "image";
   /** Base-64 encoded PDF data (only for kind === "pdf") */
   pdfData?: string;
 };

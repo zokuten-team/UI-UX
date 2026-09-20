@@ -5,6 +5,27 @@ import type { Note, Page, VersionEntry, WorkspaceDoc, LinkedTableConfig } from "
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+const readAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result ?? ""));
+  reader.onerror = () => reject(reader.error ?? new Error(`Could not read ${file.name}`));
+  reader.readAsDataURL(file);
+});
+
+const sanitiseImportedHtml = (html: string) => {
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  parsed.querySelectorAll("script, iframe, object, embed").forEach((node) => node.remove());
+  parsed.querySelectorAll<HTMLElement>("*").forEach((node) => {
+    [...node.attributes].forEach((attribute) => {
+      const value = attribute.value.trim().toLowerCase();
+      if (attribute.name.toLowerCase().startsWith("on") || value.startsWith("javascript:")) {
+        node.removeAttribute(attribute.name);
+      }
+    });
+  });
+  return parsed.body.innerHTML || "<p><br></p>";
+};
+
 /* ── starter data ──────────────────────────────────────────────────── */
 const starterDocs: WorkspaceDoc[] = [
   {
@@ -58,7 +79,7 @@ export function useWorkspace() {
   const [openDocIds, setOpenDocIds] = useState<string[]>([]);
   const [scrollExcludedDocIds, setScrollExcludedDocIds] = useState<string[]>([]);
   const [notes, setNotes] = useState<Note[]>([
-    { id: "n1", docId: "petition", pageId: "p1", text: "Verify the date and exhibit reference before filing.", createdAt: Date.now() },
+    { id: "n1", docId: "petition", pageId: "p1", text: "Verify the date and exhibit reference before filing.", createdAt: 0 },
   ]);
   const [versions, setVersions] = useState<VersionEntry[]>([]);
   const [linkedTables, setLinkedTables] = useState<LinkedTableConfig[]>([]);
@@ -134,6 +155,31 @@ export function useWorkspace() {
     setActivePageId(pageId);
     setOpenDocIds((ids) => [...new Set([...ids, id])]);
     setSaved(false);
+  }, []);
+
+  const createDocumentFromHtml = useCallback((name: string, html: string, afterDocId?: string) => {
+    const id = uid();
+    const pageId = uid();
+    const newDoc: WorkspaceDoc = {
+      id,
+      name,
+      updated: "Unsaved",
+      kind: "word",
+      pages: [{ id: pageId, title: `${name} · Page 1`, html: html || "<p><br></p>", dirty: true }],
+    };
+
+    setDocs((current) => {
+      const afterIndex = afterDocId ? current.findIndex((doc) => doc.id === afterDocId) : -1;
+      if (afterIndex < 0) return [newDoc, ...current];
+      const next = [...current];
+      next.splice(afterIndex + 1, 0, newDoc);
+      return next;
+    });
+    setActiveDocId(id);
+    setActivePageId(pageId);
+    setOpenDocIds((ids) => [...new Set([...ids, id])]);
+    setSaved(false);
+    return { docId: id, pageId };
   }, []);
 
   const createPage = useCallback(() => {
@@ -268,11 +314,6 @@ export function useWorkspace() {
     setSaved(false);
   }, []);
 
-  const scrollToPage = useCallback((pageId: string) => {
-    setActivePageId(pageId);
-    // The actual scrolling is done by the editor component via a ref
-  }, []);
-
   const addNote = useCallback((note: Omit<Note, "id" | "createdAt">) => {
     setNotes((current) => [{ ...note, id: uid(), createdAt: Date.now() }, ...current]);
     setSaved(false);
@@ -299,7 +340,7 @@ export function useWorkspace() {
     // We update the table HTML based on the new docs order
     // In a full implementation, we'd use DOMParser to diff and preserve manual edits
     setSaved(false);
-  }, [docs, linkedTables]);
+  }, []);
 
   const addFilesToWorkspace = useCallback(async (files: FileList) => {
     const newDocs: WorkspaceDoc[] = [];
@@ -312,25 +353,49 @@ export function useWorkspace() {
       let newDoc: WorkspaceDoc;
       
       if (file.type === "application/pdf") {
-        const reader = new FileReader();
-        const dataUrl = await new Promise<string>((resolve) => {
-          reader.onload = (e) => resolve(e.target?.result as string);
-          reader.readAsDataURL(file);
-        });
-        
+        const [{ openPdfBytes, extractPdfPageText }, dataUrl, bytes] = await Promise.all([
+          import("@/utils/pdf"),
+          readAsDataUrl(file),
+          file.arrayBuffer(),
+        ]);
+        const pdf = await openPdfBytes(bytes);
+        const pages: Page[] = [];
+        for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+          const extractedText = await extractPdfPageText(pdf, pageNumber);
+          pages.push({
+            id: uid(),
+            title: `${file.name} · Page ${pageNumber}`,
+            html: "",
+            pdfPageNumber: pageNumber,
+            extractedText,
+          });
+        }
         newDoc = {
           id, name: file.name, updated: "Just now", kind: "pdf", pdfData: dataUrl,
-          pages: [{ id: pageId, title: "Original PDF", html: "" }]
+          pages,
+        };
+      } else if (
+        file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+        file.name.toLowerCase().endsWith(".docx")
+      ) {
+        const mammoth = await import("mammoth");
+        const result = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
+        newDoc = {
+          id,
+          name: file.name,
+          updated: "Just now",
+          kind: "docx",
+          pages: [{
+            id: pageId,
+            title: `${file.name} · Imported document`,
+            html: sanitiseImportedHtml(result.value),
+          }],
         };
       } else if (file.type.startsWith("image/")) {
-        const reader = new FileReader();
-        const dataUrl = await new Promise<string>((resolve) => {
-          reader.onload = (e) => resolve(e.target?.result as string);
-          reader.readAsDataURL(file);
-        });
+        const dataUrl = await readAsDataUrl(file);
         
         newDoc = {
-          id, name: file.name, updated: "Just now", kind: "word",
+          id, name: file.name, updated: "Just now", kind: "image",
           pages: [{ id: pageId, title: "Image Scan", html: `<div style="text-align: center;"><img src="${dataUrl}" style="max-width: 100%; height: auto;" alt="${file.name}" /></div><p><br></p>` }]
         };
       } else {
@@ -355,7 +420,7 @@ export function useWorkspace() {
     docs, setDocs, activeDoc, activePage, activeDocId, activePageId, setActiveDocId, setActivePageId,
     openDocIds, scrollExcludedDocIds, notes, versions, saved, zoom, setZoom,
     verificationMode, setVerificationMode,
-    saveWorkspace, markDirty, updatePage, createDocument, createPage,
+    saveWorkspace, markDirty, updatePage, createDocument, createDocumentFromHtml, createPage,
     openDocument, closeDocument, discardAndClose, saveAndClose,
     renameDocument, deleteDocument, duplicateDocument, reorderDocs,
     deletePage, addNote, removeNote, toggleDocScrollExclusion,
