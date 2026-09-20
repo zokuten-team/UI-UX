@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, FileText, ChevronRight, Loader2, FilePlus } from "lucide-react";
+import { Search, FileText, Loader2, FilePlus, FolderOpen } from "lucide-react";
 import { fetchTemplates, getTemplateContent, type TemplateCategory, type TemplateItem } from "@/lib/templates/template-registry";
+import { scanDirectoryHandle, getFileFromHandle } from "@/lib/templates/local-fs-reader";
+import mammoth from "mammoth";
 
 type Props = {
   onCreateTemplateDoc: (title: string, html: string) => void;
@@ -10,45 +12,99 @@ type Props = {
 
 export function TemplatesPanel({ onCreateTemplateDoc }: Props) {
   const [categories, setCategories] = useState<TemplateCategory[]>([]);
+  const [allCategories, setAllCategories] = useState<TemplateCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [loadingTemplateId, setLoadingTemplateId] = useState<string | null>(null);
+  const [isLocalLoaded, setIsLocalLoaded] = useState(false);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
       setLoading(true);
       try {
-        const data = await fetchTemplates(searchQuery);
-        if (active) {
+        const data = await fetchTemplates();
+        if (active && !isLocalLoaded) {
+          setAllCategories(data);
           setCategories(data);
           if (data.length > 0 && !selectedCategory) {
             setSelectedCategory(data[0].name);
           }
         }
       } catch (err) {
-        console.error("Failed to load templates", err);
+        console.error("Failed to load mock templates", err);
       } finally {
         if (active) setLoading(false);
       }
     };
-    
-    // Debounce search
-    const timer = setTimeout(load, 300);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [searchQuery]);
+    if (!isLocalLoaded) {
+      load();
+    }
+    return () => { active = false; };
+  }, [isLocalLoaded]);
+
+  useEffect(() => {
+    if (searchQuery) {
+      const lowerQuery = searchQuery.toLowerCase();
+      const filtered = allCategories.map(category => {
+        const matchedTemplates = category.templates.filter(
+          t => t.name.toLowerCase().includes(lowerQuery) || category.name.toLowerCase().includes(lowerQuery)
+        );
+        return { ...category, templates: matchedTemplates };
+      }).filter(category => category.templates.length > 0);
+      setCategories(filtered);
+    } else {
+      setCategories(allCategories);
+    }
+  }, [searchQuery, allCategories]);
+
+  const handleLoadFolder = async () => {
+    if (!('showDirectoryPicker' in window)) {
+      alert("Your browser does not support the File System Access API. Please use Chrome or Edge.");
+      return;
+    }
+    try {
+      // @ts-ignore
+      const directoryHandle = await window.showDirectoryPicker();
+      setLoading(true);
+      const localCategories = await scanDirectoryHandle(directoryHandle);
+      setIsLocalLoaded(true);
+      setAllCategories(localCategories);
+      setCategories(localCategories);
+      if (localCategories.length > 0) {
+        setSelectedCategory(localCategories[0].name);
+      }
+    } catch (err) {
+      console.error("Failed to read directory", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleUseTemplate = async (template: TemplateItem) => {
     setLoadingTemplateId(template.id);
     try {
-      const content = await getTemplateContent(template.id);
-      onCreateTemplateDoc(template.name, content);
+      if (isLocalLoaded) {
+        const file = await getFileFromHandle(template.id);
+        if (file) {
+          const ext = file.name.split('.').pop()?.toLowerCase();
+          const buffer = await file.arrayBuffer();
+          if (ext === 'docx') {
+            const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
+            onCreateTemplateDoc(template.name, result.value);
+          } else {
+            const text = await file.text();
+            onCreateTemplateDoc(template.name, `<pre style="white-space: pre-wrap; font-family: inherit;">${text}</pre>`);
+          }
+        }
+      } else {
+        const content = await getTemplateContent(template.id);
+        onCreateTemplateDoc(template.name, content);
+      }
     } catch (err) {
-      console.error("Failed to fetch template content", err);
+      console.error("Failed to parse template content", err);
+      alert("Failed to read template content.");
     } finally {
       setLoadingTemplateId(null);
     }
@@ -58,7 +114,18 @@ export function TemplatesPanel({ onCreateTemplateDoc }: Props) {
 
   return (
     <div className="tool-section templates-panel">
-      <p className="helper">Browse and load premade legal drafts and forms.</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+        <p className="helper" style={{ margin: 0 }}>Browse and load premade legal drafts and forms.</p>
+        {!isLocalLoaded && (
+          <button 
+            onClick={handleLoadFolder}
+            className="panel-secondary"
+            style={{ padding: "6px 12px", display: "flex", alignItems: "center", gap: "6px", fontSize: "0.85rem", background: "#f8fafc", color: "#3b82f6", border: "1px solid #bfdbfe" }}
+          >
+            <FolderOpen size={14} /> Load Local Folder
+          </button>
+        )}
+      </div>
       
       <div className="search-bar" style={{ position: "relative", marginBottom: "16px" }}>
         <Search size={16} style={{ position: "absolute", left: "10px", top: "10px", color: "#64748b" }} />
@@ -114,7 +181,7 @@ export function TemplatesPanel({ onCreateTemplateDoc }: Props) {
               {activeCategoryData?.name}
             </h4>
             
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", paddingBottom: "20px" }}>
               {activeCategoryData?.templates.map((template) => (
                 <div 
                   key={template.id} 
@@ -134,8 +201,8 @@ export function TemplatesPanel({ onCreateTemplateDoc }: Props) {
                       <FileText size={18} color="#64748b" />
                     </div>
                     <div>
-                      <div style={{ fontWeight: 500, color: "#1e293b", fontSize: "0.95rem" }}>{template.name}</div>
-                      <div style={{ fontSize: "0.8rem", color: "#64748b" }}>{template.filename}</div>
+                      <div style={{ fontWeight: 500, color: "#1e293b", fontSize: "0.95rem", maxWidth: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{template.name}</div>
+                      <div style={{ fontSize: "0.8rem", color: "#64748b", maxWidth: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{template.filename}</div>
                     </div>
                   </div>
                   
@@ -143,12 +210,12 @@ export function TemplatesPanel({ onCreateTemplateDoc }: Props) {
                     onClick={() => handleUseTemplate(template)}
                     disabled={loadingTemplateId === template.id}
                     className="panel-secondary"
-                    style={{ padding: "6px 12px", display: "flex", alignItems: "center", gap: "6px", fontSize: "0.85rem" }}
+                    style={{ padding: "6px 12px", display: "flex", alignItems: "center", gap: "6px", fontSize: "0.85rem", whiteSpace: "nowrap" }}
                   >
                     {loadingTemplateId === template.id ? (
                       <><Loader2 size={14} className="spin" /> Loading…</>
                     ) : (
-                      <><FilePlus size={14} /> Use Template</>
+                      <><FilePlus size={14} /> Use</>
                     )}
                   </button>
                 </div>
