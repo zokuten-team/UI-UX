@@ -1,6 +1,6 @@
 /* Shared workspace types used across all workspace components. */
 
-export type ToolId = "digitise" | "analyse" | "research" | "advo" | "translate" | "calculator" | "indexing";
+export type ToolId = "digitise" | "analyse" | "research" | "advo" | "translate" | "calculator" | "indexing" | "templates" | "sharing";
 
 export type Page = {
   id: string;

@@ -13,6 +13,8 @@ type Props = {
   onOpenVerification: (text: string) => void;
   onApprove: () => void;
   canApprove: boolean;
+  verificationText: string;
+  onTextChange: (text: string) => void;
 };
 
 type Status = "idle" | "preparing" | "ocr" | "ready" | "error";
@@ -26,7 +28,7 @@ const textToHtml = (text: string) => text
     .replaceAll("\n", "<br>")}</p>`)
   .join("");
 
-export function DigitisePanel({ activeDoc, activePage, updatePage, onChooseFile, onOpenVerification, onApprove, canApprove }: Props) {
+export function DigitisePanel({ activeDoc, activePage, updatePage, onChooseFile, onOpenVerification, onApprove, canApprove, verificationText, onTextChange }: Props) {
   const [status, setStatus] = useState<Status>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
@@ -109,6 +111,15 @@ export function DigitisePanel({ activeDoc, activePage, updatePage, onChooseFile,
               <button className="panel-secondary" onClick={() => onOpenVerification(embeddedText)}>Open verification</button>
               <button className="panel-primary" onClick={onApprove} disabled={!canApprove}><CheckCircle2 /> Approve text</button>
               <small>Approval creates a new editable document directly below the source.</small>
+              <div className="digitise-editable-text">
+                <div><strong>Editable text</strong><span>Compare with the original, then approve.</span></div>
+                <textarea
+                  value={verificationText}
+                  onChange={(e) => onTextChange(e.target.value)}
+                  aria-label="Extracted document text"
+                  placeholder="Extracted text will appear here…"
+                />
+              </div>
             </div>
           )}
           {error && <div className="panel-error"><AlertCircle /> <span>{error}</span></div>}

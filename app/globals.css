@@ -394,6 +394,11 @@ mark.search-highlight.active { background: #f59e0b; color: #fff; }
 .digitise-summary span { margin-top: 3px; color: #61746f; font-size: 10px; }
 .digitise-actions { display: grid; gap: 8px; }
 .digitise-actions small { color: #718079; font-size: 9px; line-height: 1.45; }
+.digitise-editable-text { display: flex; flex-direction: column; margin-top: 10px; border: 1px solid #dce3e8; border-radius: 8px; background: #fff; overflow: hidden; }
+.digitise-editable-text > div { padding: 10px 12px; border-bottom: 1px solid #e8ecef; }
+.digitise-editable-text strong { display: block; color: #293b47; font-size: 11.5px; font-weight: 700; }
+.digitise-editable-text span { display: block; margin-top: 2px; color: #7a8790; font-size: 10px; }
+.digitise-editable-text textarea { width: 100%; min-height: 220px; max-height: 50vh; resize: vertical; border: 0; outline: 0; padding: 12px; color: #202a31; font-family: Georgia, "Times New Roman", serif; font-size: 12.5px; line-height: 1.7; }
 .panel-error { display: flex; gap: 7px; margin-top: 10px; border-radius: 7px; background: #fff1f0; padding: 9px; color: #b42318; font-size: 11px; line-height: 1.4; }
 .panel-error svg { width: 15px; flex: 0 0 15px; }
 .quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 13px; }
@@ -458,15 +463,15 @@ mark.search-highlight.active { background: #f59e0b; color: #fff; }
 .verification-header strong { color: #20323e; font-size: 13px; }
 .verification-header span { overflow: hidden; max-width: 48vw; color: #7b8790; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .icon-only { width: 36px; padding: 0; }
-.verification-body { display: grid; min-height: 0; flex: 1; grid-template-columns: minmax(0, 1fr) minmax(320px, .9fr); background: #dfe5e9; gap: 1px; }
-.verification-source { overflow: auto; background: #e9edf0; padding: 24px; }
+.verification-body { display: flex; flex-direction: column; min-height: 0; flex: 1; background: #dfe5e9; gap: 1px; overflow: auto; }
+.verification-source { overflow: auto; background: #e9edf0; padding: 24px; flex-shrink: 0; }
 .verification-source .pdf-page, .verification-source > img { display: block; width: min(100%, 760px); margin: 0 auto; box-shadow: 0 3px 16px rgb(15 23 42 / 15%); }
-.verification-text { display: flex; min-width: 0; flex-direction: column; background: #fff; }
+.verification-text { display: flex; min-width: 0; flex-direction: column; background: #fff; min-height: 320px; flex: 1; }
 .verification-text > div { padding: 13px 16px; border-bottom: 1px solid #e1e6ea; }
 .verification-text strong, .verification-text span { display: block; }
 .verification-text strong { color: #293b47; font-size: 12px; }
 .verification-text span { margin-top: 2px; color: #7a8790; font-size: 10px; }
-.verification-text textarea { width: 100%; min-height: 0; flex: 1; resize: none; border: 0; outline: 0; padding: 20px; color: #202a31; font-family: Georgia, "Times New Roman", serif; font-size: 14px; line-height: 1.7; }
+.verification-text textarea { width: 100%; min-height: 280px; flex: 1; resize: vertical; border: 0; outline: 0; padding: 20px; color: #202a31; font-family: Georgia, "Times New Roman", serif; font-size: 14px; line-height: 1.7; }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: rgb(7 16 24 / 58%); padding: 20px; }
 .print-dialog { width: min(760px, 100%); overflow: hidden; border-radius: 13px; background: #fff; box-shadow: 0 25px 70px rgb(0 0 0 / 28%); }
@@ -601,8 +606,7 @@ mark.search-highlight.active { background: #f59e0b; color: #fff; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 760px) {
-  .verification-body { grid-template-columns: 1fr; overflow: auto; }
-  .verification-source, .verification-text { min-height: 65vh; }
+  .verification-source, .verification-text { min-height: 50vh; }
 }
 
 /* ── Legal Numbering Counters ── */

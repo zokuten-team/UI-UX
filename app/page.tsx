@@ -5,12 +5,12 @@ import {
   Archive, Bot, Calculator, ChevronDown, ChevronRight, ClipboardList,
   Cloud, FilePlus2, FileText, Languages, MessageSquareText,
   PanelRightClose, PanelRightOpen, Plus, Printer,
-  Save, Scale, Search, ScanLine, Sparkles,
+  Save, Scale, Search, ScanLine, Share2, Sparkles,
   Upload, X, ZoomIn, ZoomOut,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-import type { ToolId, WorkspaceDoc } from "@/components/workspace/types";
+import type { Page, ToolId, WorkspaceDoc } from "@/components/workspace/types";
 import { useWorkspace } from "@/components/workspace/workspace-store";
 import { NotesPanel, InlineNoteAdder } from "@/components/workspace/notes-panel";
 import { DocumentSearch } from "@/components/workspace/document-search";
@@ -20,6 +20,12 @@ import { WordToolbar } from "@/components/workspace/word-toolbar";
 import { AnalysePanel } from "@/components/workspace/analyse-panel";
 import { DigitisePanel } from "@/components/workspace/digitise-panel";
 import { VerificationWorkspace } from "@/components/workspace/verification-workspace";
+import { ResearchPanel } from "@/components/workspace/research-panel";
+import { DraftPanel } from "@/components/workspace/draft-panel";
+import { TranslationPanel } from "@/components/workspace/translation-panel";
+import { TemplatesPanel } from "@/components/workspace/templates-panel";
+import { SharingPanel } from "@/components/workspace/sharing-panel";
+import { PrintDialog, PrintStack } from "@/components/workspace/print-dialog";
 import { PdfPage } from "@/components/workspace/pdf-page";
 
 /* ── Tools catalogue ──────────────────────────────────────────────── */
@@ -31,9 +37,10 @@ const tools: Array<{ id: ToolId; label: string; icon: LucideIcon }> = [
   { id: "translate", label: "Translation AI", icon: Languages },
   { id: "calculator", label: "Suit Calculator", icon: Calculator },
   { id: "indexing", label: "Indexing", icon: ClipboardList },
+  { id: "templates", label: "Legal Templates", icon: FileText },
 ];
 
-const courts = ["All Courts", "Supreme Court of India", "Allahabad High Court", "Andhra Pradesh High Court", "Bombay High Court", "Calcutta High Court", "Delhi High Court", "Gujarat High Court", "Karnataka High Court", "Kerala High Court", "Madras High Court", "Telangana High Court"];
+
 
 const plainTextToHtml = (text: string) => text
   .split(/\n{2,}/)
@@ -525,12 +532,20 @@ export default function LegalWorkspace() {
                   onOpenVerification={openVerification}
                   onApprove={approveVerification}
                   canApprove={Boolean(verificationDraft.trim())}
+                  verificationText={verificationDraft}
+                  onTextChange={setVerificationDraft}
                 />
               )}
               {panel === "analyse" && <AnalysePanel html={activePage?.html ?? ""} />}
               {panel === "research" && <ResearchPanel />}
-              {panel === "advo" && <AdvoPanel onCreateDraft={createAiDraft} />}
-              {panel === "translate" && <TranslationPanel />}
+              {panel === "advo" && <DraftPanel onCreateDraft={createAiDraft} activePageHtml={activePage?.html} />}
+              {panel === "translate" && <TranslationPanel activePageHtml={activePage?.html} onCreateTranslatedDoc={(title, html) => {
+                createDocumentFromHtml(title, html, activeDocId);
+              }} />}
+              {panel === "templates" && <TemplatesPanel onCreateTemplateDoc={(title, html) => {
+                createDocumentFromHtml(title, html, activeDocId);
+              }} />}
+              {panel === "sharing" && <SharingPanel workspaceData={JSON.stringify(docs)} />}
               {panel === "calculator" && <div className="calculator-frame"><iframe title="Suit valuation calculator" src="/calculator" /></div>}
               {panel === "indexing" && (
                 <IndexPanel 
@@ -579,206 +594,4 @@ export default function LegalWorkspace() {
   );
 }
 
-/* ── Sub-panels (kept inline for simplicity) ──────────────────────── */
 
-function AnalysePanel({ html }: { html: string }) {
-  const [perspective, setPerspective] = useState("Petitioner");
-  const [analysis, setAnalysis] = useState("");
-  const textLength = html.replace(/<[^>]+>/g, " ").trim().length;
-  const run = () => setAnalysis(`From the ${perspective.toLowerCase()} perspective, the open page contains ${textLength} characters. Priority review: establish jurisdiction, identify each material fact and supporting annexure, test limitation, and connect every prayer to a pleaded ground. This preview is ready for a document-analysis backend.`);
-  return (
-    <div className="tool-section">
-      <p className="helper">Choose whose case the review should strengthen or challenge.</p>
-      <label>Perspective
-        <select value={perspective} onChange={(e) => setPerspective(e.target.value)}>
-          {["Complainant", "Plaintiff", "Petitioner", "Defendant", "Respondent", "Accused", "Appellant", "Prosecution", "Neutral reviewer", "Judge / tribunal"].map((v) => <option key={v}>{v}</option>)}
-        </select>
-      </label>
-      <div className="quick-grid">
-        <button onClick={run}>Case theory</button><button onClick={run}>Weak points</button>
-        <button onClick={run}>Missing evidence</button><button onClick={run}>Relief check</button>
-      </div>
-      <button className="panel-primary" onClick={run}><Sparkles /> Analyse open page</button>
-      {analysis && <div className="ai-output"><strong>{perspective} review</strong><p>{analysis}</p></div>}
-    </div>
-  );
-}
-
-function ResearchPanel() {
-  const [scope, setScope] = useState<"Judgements" | "Bare Acts">("Judgements");
-  const [court, setCourt] = useState("Supreme Court of India");
-  const [term, setTerm] = useState("principles of natural justice administrative order");
-  const [searched, setSearched] = useState(true);
-  return (
-    <div className="tool-section research-panel">
-      <div className="segmented"><button className={scope === "Judgements" ? "active" : ""} onClick={() => setScope("Judgements")}>Judgements</button><button className={scope === "Bare Acts" ? "active" : ""} onClick={() => setScope("Bare Acts")}>Bare Acts</button></div>
-      <div className="filter-grid">
-        <label>Court<select value={court} onChange={(e) => setCourt(e.target.value)}>{courts.map((c) => <option key={c}>{c}</option>)}</select></label>
-        <label>Search preference<select><option>Exact phrase + semantic</option><option>Most cited</option><option>Latest first</option></select></label>
-        <label className="span-two">Search term<textarea value={term} onChange={(e) => setTerm(e.target.value)} /></label>
-        <label>From<input type="date" /></label><label>To<input type="date" /></label>
-        <label>Act title<input placeholder="e.g. Constitution of India" /></label><label>Section<input placeholder="Article / section" /></label>
-        <label>Party 1<input placeholder="Party name" /></label><label>Party 2<input placeholder="Opposite party" /></label>
-        <label className="span-two">Judge / advocate<input placeholder="Names, separated by commas" /></label>
-      </div>
-      <button className="panel-primary" onClick={() => setSearched(true)}><Search /> Search with AI</button>
-      {searched && <div className="research-results"><div className="result-summary"><strong>3 relevant authorities</strong><span>AI-ranked preview</span></div>
-        {[
-          ["Maneka Gandhi v. Union of India", "Supreme Court of India · (1978) 1 SCC 248", "Fair procedure and natural justice form part of non-arbitrariness under Article 14."],
-          ["Canara Bank v. Debasis Das", "Supreme Court of India · (2003) 4 SCC 557", "Explains the core rules of natural justice and the requirement of a fair hearing."],
-          ["Dharampal Satyapal Ltd. v. Dy. Commissioner", "Supreme Court of India · (2015) 8 SCC 519", "Considers prejudice and the consequences of breach of natural justice."],
-        ].map(([title, meta, note], i) => <article key={title}><div className="result-rank">{i + 1}</div><div><h3>{title}</h3><span>{meta}</span><p>{note}</p><div><button>Open</button><button>Add citation</button><button>Ask AI</button></div></div></article>)}
-      </div>}
-    </div>
-  );
-}
-
-function AdvoPanel({ onCreateDraft }: { onCreateDraft: (instruction: string) => void }) {
-  const [messages, setMessages] = useState<Array<{ role: "ai" | "user"; text: string }>>([{ role: "ai", text: "I can help draft, compare clauses, create a chronology or explain the open document." }]);
-  const [input, setInput] = useState("");
-  const draft = (instruction: string) => {
-    onCreateDraft(instruction);
-    setMessages((current) => [...current, { role: "user", text: instruction }, { role: "ai", text: "I opened a new editable document and started the draft there." }]);
-    setInput("");
-  };
-  const send = () => {
-    if (!input.trim()) return;
-    const prompt = input.trim();
-    if (/\bdraft\b/i.test(prompt)) {
-      draft(prompt);
-      return;
-    }
-    setMessages((current) => [...current, { role: "user", text: prompt }, { role: "ai", text: "This frontend is ready to send that request with the open page and selected case files to the Advo AI backend." }]);
-    setInput("");
-  };
-  return (
-    <div className="tool-section chat-tool">
-      <div className="quick-grid"><button onClick={() => setInput("Summarise the open page")}>Summarise</button><button onClick={() => setInput("Extract key clauses")}>Key clauses</button><button onClick={() => setInput("Create action items")}>Action items</button><button onClick={() => draft("Draft a response to the open document")}>Draft in new document</button></div>
-      <div className="chat-messages">{messages.map((m, i) => <div key={i} className={m.role}>{m.text}</div>)}</div>
-      <div className="chat-input"><textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask Advo AI about this matter…" onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }} /><button onClick={send}><ChevronRight /></button></div>
-    </div>
-  );
-}
-
-function TranslationPanel() {
-  const [language, setLanguage] = useState("Kannada");
-  const [done, setDone] = useState(false);
-  return (
-    <div className="tool-section">
-      <p className="helper">Translate the open page while preserving headings, tables and paragraph structure.</p>
-      <label>Target language<select value={language} onChange={(e) => { setLanguage(e.target.value); setDone(false); }}>{["Kannada", "Hindi", "Tamil", "Telugu", "Malayalam", "Marathi", "Bengali", "Gujarati", "Punjabi", "Urdu", "English"].map((l) => <option key={l}>{l}</option>)}</select></label>
-      <label>Legal terminology<select><option>Preserve English legal terms</option><option>Translate where equivalent exists</option><option>Plain-language translation</option></select></label>
-      <button className="panel-primary" onClick={() => setDone(true)}><Languages /> Translate open page</button>
-      {done && <div className="ai-output"><strong>{language} translation queued</strong><p>The translated page will appear beside the original when the translation service is connected.</p></div>}
-    </div>
-  );
-}
-
-/* ── Print ──────────────────────────────────────────────────────────── */
-type PrintDialogProps = {
-  docs: WorkspaceDoc[]; selectedPages: string[]; setSelectedPages: React.Dispatch<React.SetStateAction<string[]>>;
-  position: "top" | "bottom"; setPosition: (v: "top" | "bottom") => void;
-  start: number; setStart: (v: number) => void;
-  pageRange: string; setPageRange: (v: string) => void;
-  orientation: "portrait" | "landscape"; setOrientation: (v: "portrait" | "landscape") => void;
-  sided: "single" | "double"; setSided: (v: "single" | "double") => void;
-  includeNotes: boolean; setIncludeNotes: (v: boolean) => void;
-  includeIndex: boolean; setIncludeIndex: (v: boolean) => void;
-  onClose: () => void;
-};
-
-function PrintDialog({ docs, selectedPages, setSelectedPages, position, setPosition, start, setStart, pageRange, setPageRange, orientation, setOrientation, sided, setSided, includeNotes, setIncludeNotes, includeIndex, setIncludeIndex, onClose }: PrintDialogProps) {
-  const [expandedDocs, setExpandedDocs] = useState<string[]>([]);
-  const count = docs.reduce((total, doc) => total + doc.pages.filter((page) => selectedPages.includes(page.id)).length, 0);
-  const toggleDocument = (doc: WorkspaceDoc, checked: boolean) => {
-    const pageIds = doc.pages.map((page) => page.id);
-    setSelectedPages((current) => checked
-      ? [...new Set([...current, ...pageIds])]
-      : current.filter((pageId) => !pageIds.includes(pageId)));
-  };
-  return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true">
-      <div className="print-dialog">
-        <div className="modal-title"><div><span className="eyebrow">PRINT / EXPORT</span><h2>Configure print bundle</h2></div><button onClick={onClose}><X /></button></div>
-        <div className="print-body">
-          <section>
-            <h3>Documents</h3>
-            <div className="print-files">
-              {docs.map((doc) => {
-                const selectedCount = doc.pages.filter((page) => selectedPages.includes(page.id)).length;
-                const expanded = expandedDocs.includes(doc.id);
-                return (
-                  <div className="print-file-group" key={doc.id}>
-                    <div className="print-file-row">
-                      <label>
-                        <input type="checkbox" checked={selectedCount === doc.pages.length} onChange={(event) => toggleDocument(doc, event.target.checked)} />
-                        <FileText />
-                        <span><strong>{doc.name}</strong><small>{selectedCount} of {doc.pages.length} pages selected</small></span>
-                      </label>
-                      <button aria-label={`Choose pages from ${doc.name}`} title="Choose pages" onClick={() => setExpandedDocs((current) => expanded ? current.filter((id) => id !== doc.id) : [...current, doc.id])}>
-                        {expanded ? <ChevronDown /> : <ChevronRight />}
-                      </button>
-                    </div>
-                    {expanded && (
-                      <div className="print-page-choices">
-                        {doc.pages.map((page, index) => (
-                          <label key={page.id}>
-                            <input
-                              type="checkbox"
-                              checked={selectedPages.includes(page.id)}
-                              onChange={(event) => setSelectedPages((current) => event.target.checked ? [...new Set([...current, page.id])] : current.filter((id) => id !== page.id))}
-                            />
-                            <span>Page {index + 1}</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <h3>Page range</h3>
-            <input type="text" value={pageRange} onChange={(e) => setPageRange(e.target.value)} placeholder="All pages (e.g. 1-3, 5)" className="print-range-input" />
-            <h3>Include</h3>
-            <label className="print-toggle"><input type="checkbox" checked={includeNotes} onChange={(e) => setIncludeNotes(e.target.checked)} /> Notes & annotations</label>
-            <label className="print-toggle"><input type="checkbox" checked={includeIndex} onChange={(e) => setIncludeIndex(e.target.checked)} /> Document index</label>
-          </section>
-          <section>
-            <h3>Page numbers</h3>
-            <div className="number-position"><button className={position === "top" ? "active" : ""} onClick={() => setPosition("top")}>Above / header</button><button className={position === "bottom" ? "active" : ""} onClick={() => setPosition("bottom")}>Below / footer</button></div>
-            <label className="start-number">Start numbering at<input type="number" min="1" value={start} onChange={(e) => setStart(Math.max(1, Number(e.target.value)))} /></label>
-            <h3>Layout</h3>
-            <div className="number-position"><button className={orientation === "portrait" ? "active" : ""} onClick={() => setOrientation("portrait")}>Portrait</button><button className={orientation === "landscape" ? "active" : ""} onClick={() => setOrientation("landscape")}>Landscape</button></div>
-            <div className="number-position" style={{ marginTop: 8 }}><button className={sided === "single" ? "active" : ""} onClick={() => setSided("single")}>Single-sided</button><button className={sided === "double" ? "active" : ""} onClick={() => setSided("double")}>Double-sided</button></div>
-            <div className="page-number-preview"><div className={position === "top" ? "at-top" : "at-bottom"}>{start}</div><span>Page number preview</span></div>
-            <p>{count} selected pages · numbered {start}–{Math.max(start, start + count - 1)}</p>
-          </section>
-        </div>
-        <div className="modal-actions">
-          <button className="quiet-button" onClick={onClose}>Cancel</button>
-          <button className="primary-button" disabled={!count} onClick={() => { onClose(); setTimeout(() => window.print(), 100); }}><Printer /> Print selected</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PrintStack({ docs, selectedPages, position, start }: { docs: WorkspaceDoc[]; selectedPages: string[]; position: "top" | "bottom"; start: number }) {
-  const pages = docs.flatMap((doc) => doc.pages
-    .filter((page) => selectedPages.includes(page.id))
-    .map((page) => ({ page, doc })));
-  return (
-    <div className="print-stack">
-      {pages.map(({ page, doc }, index) => (
-        <article className="print-page" key={`${doc.id}-${page.id}`}>
-          <div className={`printed-number ${position}`}>{start + index}</div>
-          {doc.kind === "pdf" ? (
-            <PdfPage source={doc.pdfData ?? ""} pageNumber={page.pdfPageNumber ?? index + 1} label={doc.name} />
-          ) : (
-            <div dangerouslySetInnerHTML={{ __html: page.html }} />
-          )}
-        </article>
-      ))}
-    </div>
-  );
-}
